@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, current_app
-from app.models import Consultation, Event
+from app.models import Consultation, Event, Lead, User
 from app.utils.decorators import requires_role
 
 calendar_public_bp = Blueprint("calendar_public", __name__, url_prefix="/api/public")
@@ -110,7 +110,9 @@ def admin_calendar():
     """
     Combined calendar feed for the admin dashboard: consultations and events
     in one range, each tagged with a `type` field so the frontend can render
-    them differently (e.g. color-code) while sharing one view.
+    them differently while sharing one view. Enriched with real names/contact
+    details (not just IDs) so the calendar is actually useful at a glance
+    rather than requiring a click-through for basic context.
     """
     start_param = request.args.get("start")
     end_param = request.args.get("end")
@@ -139,24 +141,37 @@ def admin_calendar():
 
     items = []
     for c in consultations:
+        lead = Lead.query.get(c.lead_id)
         items.append(
             {
                 "type": "consultation",
                 "id": c.id,
-                "title": f"Consultation - lead #{c.lead_id}",
+                "title": lead.name if lead else f"Lead #{c.lead_id}",
+                "subtitle": f"{c.mode.replace('_', ' ').title()} consultation" if c.mode else "Consultation",
+                "phone": lead.phone if lead else None,
+                "email": lead.email if lead else None,
                 "date": c.scheduled_at.date().isoformat(),
                 "time": c.scheduled_at.strftime("%H:%M"),
+                "duration_mins": c.duration_mins,
                 "status": c.status,
+                "fee_waived": c.fee_waived,
+                "fee_paid": c.fee_paid,
+                "lead_id": c.lead_id,
             }
         )
     for e in events:
+        client = User.query.get(e.client_id)
         items.append(
             {
                 "type": "event",
                 "id": e.id,
                 "title": e.venue or f"Event #{e.id}",
+                "subtitle": client.name if client else "No client on file",
+                "phone": client.phone if client else None,
+                "email": client.email if client else None,
                 "date": e.event_date.isoformat(),
                 "time": None,
+                "guest_count": e.guest_count,
                 "status": e.status,
             }
         )
